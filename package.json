@@ -1,0 +1,61 @@
+{
+  "name": "dsh-ximalaya",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 喜马拉雅播客插件：Host 端代理喜马拉雅搜索/专辑/曲目接口并解析播放地址（免费曲直链 + 登录态 baseInfo 解锁已购/VIP 内容），浏览器侧提供播放条与搜索/专辑/收藏面板，并注册 ximalaya_play 模型工具",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "ximalaya",
+    "podcast",
+    "audio",
+    "player"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jerryqx/dsh-ximalaya.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jerryqx/dsh-ximalaya/issues"
+  },
+  "homepage": "https://github.com/jerryqx/dsh-ximalaya#readme",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ci": "vitest run"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3",
+    "react-dom": "^18.3.1",
+    "vitest": "^4.1.10"
+  }
+}

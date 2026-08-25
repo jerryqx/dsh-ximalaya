@@ -1,0 +1,8 @@
+# dsh-ximalaya bundle patch: inserts the dual-face plugin row into the web
+# profile roster. The node half (exports ".") runs in the host process
+# (Ximalaya search/album/track API proxy, play-URL resolution, audio stream
+# relay, and the ximalaya_play model tool), and the dsh.client declaration in
+# package.json loads the browser half (exports "./client") in the web GUI.
+- insert:
+    - id: ximalaya-podcast
+      name: 'dsh-ximalaya'
