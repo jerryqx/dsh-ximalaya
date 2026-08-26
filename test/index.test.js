@@ -38,10 +38,32 @@ vi.mock('../lib/xmly.js', async (importOriginal) => {
     qrCreate: vi.fn(async () => ({ qrId: 'QRID', imageDataUrl: 'data:image/png;base64,xxx', expiresAt: Date.now() + 180000 })),
     qrCheck: vi.fn(async () => ({ status: 'waiting', cookies: null })),
     getCurrentUser: vi.fn(async () => null),
+    userFollowing: vi.fn(async (uid, page = 1, pageSize = 20) => ({
+      anchors: [
+        { uid: 170217760, nickname: '三体宇宙', cover: '', description: '三体有声剧官方', ptitle: '', albumCount: 11, trackCount: 488, fansCount: 4725762, followingCount: 22, isFollow: true, url: '/zhubo/170217760' },
+        { uid: 2, nickname: '喜马拉雅创作中心', cover: '', description: '', ptitle: '喜马拉雅', albumCount: 776, trackCount: 101161, fansCount: 27105024, followingCount: 152, isFollow: true, url: '/zhubo/2' },
+      ],
+      total: 2, page, pageSize,
+    })),
+    likeTracks: vi.fn(async (pageNum = 1, pageSize = 30) => ({
+      tracks: [
+        { id: 1001, title: '收藏的第一集', cover: '', duration: 258, durationText: '04:18', albumId: 123, albumTitle: '测试专辑', anchorName: '主播', anchorId: 1, playCount: 10, createdAtText: '3天前', isVideo: false, isPaid: false },
+        { id: 1002, title: '收藏的第二集', cover: '', duration: 0, durationText: '', albumId: 123, albumTitle: '测试专辑', anchorName: '主播', anchorId: 1, playCount: 5, createdAtText: '', isVideo: false, isPaid: true },
+      ],
+      total: 2, pageNum, hasMore: true,
+    })),
+    anchorProfile: vi.fn(async (uid) => ({
+      albums: [
+        { id: 111, title: '主播专辑一', cover: '', intro: '', trackCount: 10, playCount: 100, isPaid: false, isFinished: true, anchorName: '三体宇宙' },
+        { id: 222, title: '主播专辑二（付费）', cover: '', intro: '', trackCount: 20, playCount: 200, isPaid: true, isFinished: false, anchorName: '三体宇宙' },
+      ],
+      total: 2, uid,
+    })),
   }
 })
 
 import { apply } from '../lib/index.js'
+import { qrCheck, getCurrentUser } from '../lib/xmly.js'
 
 let server = null
 let registeredTool = null
@@ -155,6 +177,60 @@ describe('host routes', () => {
     expect(c.body.qrId).toBe('QRID')
     const ck = await get('/dsh-ximalaya/qr/check?qrId=QRID')
     expect(ck.body.status).toBe('waiting')
+  })
+
+  it('following / likes 未登录返回 401 + needLogin', async () => {
+    const f = await get('/dsh-ximalaya/following')
+    expect(f.status).toBe(401)
+    expect(f.body.ok).toBe(false)
+    expect(f.body.needLogin).toBe(true)
+    const l = await get('/dsh-ximalaya/likes')
+    expect(l.status).toBe(401)
+    expect(l.body.needLogin).toBe(true)
+  })
+
+  it('扫码登录后 following / likes / anchor 可用', async () => {
+    // 模拟扫码成功 → cookie + user（uid 42）落盘。
+    qrCheck.mockResolvedValueOnce({
+      status: 'success',
+      cookies: { '1&_token': 'tok', uid: '42' },
+      token: 'tok',
+    })
+    getCurrentUser.mockResolvedValueOnce({ uid: 42, nickname: '测试用户', isVip: false, vipExpireTime: 0, isLoginBan: false })
+    const c = await post('/dsh-ximalaya/qr/create', {})
+    const ck = await get('/dsh-ximalaya/qr/check?qrId=' + encodeURIComponent(c.body.qrId))
+    expect(ck.body.status).toBe('success')
+    expect(ck.body.user.nickname).toBe('测试用户')
+
+    // 已关注的主播（默认取当前用户 uid）。
+    const f = await get('/dsh-ximalaya/following')
+    expect(f.status).toBe(200)
+    expect(f.body.ok).toBe(true)
+    expect(f.body.uid).toBe(42)
+    expect(f.body.anchors.length).toBe(2)
+    expect(f.body.anchors[0].nickname).toBe('三体宇宙')
+    expect(f.body.total).toBe(2)
+
+    // 收藏的声音。
+    const l = await get('/dsh-ximalaya/likes?pageNum=1&pageSize=30')
+    expect(l.status).toBe(200)
+    expect(l.body.ok).toBe(true)
+    expect(l.body.tracks.length).toBe(2)
+    expect(l.body.tracks[0].title).toBe('收藏的第一集')
+    expect(l.body.hasMore).toBe(true)
+
+    // 主页专辑（匿名可用，显式 uid）。
+    const a = await get('/dsh-ximalaya/anchor?uid=170217760')
+    expect(a.status).toBe(200)
+    expect(a.body.ok).toBe(true)
+    expect(a.body.albums.length).toBe(2)
+    expect(a.body.albums[1].isPaid).toBe(true)
+  })
+
+  it('anchor 无效 uid 400', async () => {
+    const { status, body } = await get('/dsh-ximalaya/anchor?uid=abc')
+    expect(status).toBe(400)
+    expect(body.ok).toBe(false)
   })
 })
 

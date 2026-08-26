@@ -8,6 +8,8 @@ DeepSeek Harness 喜马拉雅播客插件。
 
 - **搜索**：按关键词搜喜马拉雅专辑（封面/主播/分类/集数/完结状态/播放量卡片式展示），带搜索历史
 - **专辑浏览**：曲目列表分页加载（每页 30 集，可一直「加载更多」），点击即播
+- **收藏的声音**：「我的」页展示账号收藏（♥ 喜欢）的声音列表，分页加载、**点击即播**，含所属专辑/主播/时长/收藏时间
+- **关注的主播**：「我的」页展示已关注主播（头像/简介/粉丝数/专辑数），点击主播浏览其公开专辑并进入收听
 - **播放条**：播放/暂停、上一集/下一集（自动连播专辑列表，翻页自动续）、可拖进度条、音量、倍速（0.75x–2x）、时间显示
 - **音频流代理**：播放地址由 Host 端解析并流式转发（支持 Range 拖动/续传），浏览器无 CORS 顾虑，登录态不出 Host
 - **扫码登录（可选）**：喜马拉雅 App 扫码后可播 VIP/已购内容（免费内容无需登录）
@@ -33,7 +35,7 @@ dsh plugin --profile <profile> add /path/to/dsh-ximalaya
 
 # 或先打包再安装
 npm pack
-dsh plugin --profile <profile> add ./dsh-ximalaya-0.1.0.tgz
+dsh plugin --profile <profile> add ./dsh-ximalaya-0.2.0.tgz
 ```
 
 安装后重启 `dsh web` 并刷新页面：
@@ -48,15 +50,17 @@ dsh plugin --profile <profile> add ./dsh-ximalaya-0.1.0.tgz
 2. **连续播放**：一集播完自动播下一集；⏮/⏭ 在专辑内切换；翻到已加载列表末尾会自动拉取下一页续播
 3. **让 agent 播放**：对话框里说「用喜马拉雅播放 XXX」；agent 会调用 `ximalaya_play` 工具，播放条 2 秒内响应
 4. **VIP/付费内容**：面板「我的」页 → 喜马拉雅 App 扫码登录 → 已购/VIP 内容自动解锁（播放质量也会升到 128k M4A）
-5. **收藏**：专辑详情页点「♡ 收藏」；「我的」页可查看/移除收藏
+5. **收藏的声音 / 关注的主播**：登录后面板「我的」页分三段——「♥ 收藏的声音」（点击任意一条即播，支持加载更多）、「👤 关注的主播」（点主播看其公开专辑，点专辑即听）、「📻 收藏的专辑」（本插件本地收藏）
 6. **倍速/音量**：播放条上点 `1.0x` 循环切换倍速；🔊 弹出音量条
+
+> 说明：「收藏的声音 / 关注的主播」读取的是喜马拉雅账号云端数据（App 内点 ♥ 喜欢、点 + 关注的都会出现），需先扫码登录；「收藏的专辑」是插件本地的收藏（仅存本机）。
 
 ## 配置
 
 插件为「Host 端 + Web 端」双面结构：
 
-- **Host 端**（`lib/index.js`）：喜马拉雅接口代理（搜索/专辑/曲目/扫码登录）、播放地址解析与音频流转发、`ximalaya_play` 工具、状态持久化
-- **Web 端**（`lib/client.js`）：浏览器里的播放条 + 搜索/专辑/收藏面板
+- **Host 端**（`lib/index.js`）：喜马拉雅接口代理（搜索/专辑/曲目/扫码登录/收藏声音/关注主播）、播放地址解析与音频流转发、`ximalaya_play` 工具、状态持久化
+- **Web 端**（`lib/client.js`）：浏览器里的播放条 + 面板（搜索/专辑/主播/我的）
 
 由 `cordis.patch.yml` 插入 `ximalaya-podcast` 行自动组对：
 
@@ -72,7 +76,7 @@ dsh plugin --profile <profile> add ./dsh-ximalaya-0.1.0.tgz
 
 ```sh
 npm install
-npm test        # vitest：xmly 纯函数单测 + host 路由集成测试 + Web 渲染冒烟（34 用例）
+npm test        # vitest：xmly 纯函数单测 + host 路由集成测试 + Web 渲染冒烟（41 用例）
 ```
 
 修改 `lib/` 后本地调试：
@@ -85,7 +89,7 @@ dsh plugin --profile <profile> add ./   # 或直接改 profile 里的 link 目�
 
 ```text
 lib/
-├── xmly.js     # 喜马拉雅 API 库：搜索/专辑/曲目/播放地址（xm-sign 签名 + 解密）/扫码登录
+├── xmly.js     # 喜马拉雅 API 库：搜索/专辑/曲目/播放地址（xm-sign 签名 + 解密）/扫码登录/收藏声音/关注主播
 ├── index.js    # Host 半边：/dsh-ximalaya/* 路由、音频流代理、ximalaya_play 工具
 └── client.js   # 浏览器半边：播放条 + 面板（slots 注入）
 ```
