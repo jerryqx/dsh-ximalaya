@@ -164,6 +164,17 @@ describe('host routes', () => {
     expect(r.body.playback.position).toBe(12)
   })
 
+  it('prefs 持久化 seekStep（快进/快退步长），白名单外键仍被过滤', async () => {
+    const w = await post('/dsh-ximalaya/prefs', { prefs: { seekStep: 30, evil: 'hack' } })
+    expect(w.body.ok).toBe(true)
+    expect(w.body.prefs.seekStep).toBe(30)
+    expect(w.body.prefs.evil).toBeUndefined()
+    const r = await get('/dsh-ximalaya/prefs')
+    expect(r.body.prefs.seekStep).toBe(30)
+    // 原有偏好不受影响。
+    expect(r.body.prefs.volume).toBe(0.5)
+  })
+
   it('fav 增删', async () => {
     const add = await post('/dsh-ximalaya/fav', { album: { id: 123, title: '测试专辑' } })
     expect(add.body.favs.length).toBe(1)

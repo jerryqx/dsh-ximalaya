@@ -12,6 +12,9 @@ global.window = dom.window
 global.document = dom.window.document
 Object.defineProperty(global, 'navigator', { value: dom.window.navigator, configurable: true, writable: true })
 Object.defineProperty(global, 'HTMLElement', { value: dom.window.HTMLElement, configurable: true, writable: true })
+// Audio 桩：记录监听器；play() 异步加载出 300 秒时长并派发媒体事件
+// （loadedmetadata/durationchange/play/playing），pause() 派发 pause，
+// 供快进/快退、时间显示与进度条断言使用。
 global.Audio = class {
   constructor() {
     this.volume = 1
@@ -19,17 +22,32 @@ global.Audio = class {
     this.currentTime = 0
     this.duration = 0
     this.paused = true
+    this.readyState = 0
     this.listeners = {}
     this.style = {}
   }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn) }
   removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn) }
-  play() { this.paused = false; return Promise.resolve() }
-  pause() { this.paused = true }
+  _fire(t) { for (const fn of [...(this.listeners[t] || [])]) fn({ target: this }) }
+  play() {
+    this.paused = false
+    setTimeout(() => {
+      this.readyState = 1
+      this.duration = 300
+      this._fire('loadedmetadata')
+      this._fire('durationchange')
+      this._fire('play')
+      this._fire('playing')
+    }, 0)
+    return Promise.resolve()
+  }
+  pause() { this.paused = true; this._fire('pause') }
   load() {}
   setAttribute() {}
   removeAttribute() {}
 }
+// manifest 响应数据（可变，便于测试步长配置下发）。
+const manifestData = { prefs: {} }
 // fetch stub：全部返回 ok 的响应，避免测试触网。
 global.fetch = vi.fn(async (url) => ({
   ok: true,
@@ -38,7 +56,7 @@ global.fetch = vi.fn(async (url) => ({
     if (u.includes('/manifest')) return {
       ok: true, loggedIn: true,
       user: { uid: 42, nickname: '测试用户', isVip: false, vipExpireTime: 0, isLoginBan: false },
-      favs: [], history: [], prefs: {}, playback: null,
+      favs: [], history: [], prefs: manifestData.prefs, playback: null,
     }
     if (u.includes('/intent')) return { ok: true, intent: null }
     if (u.includes('/search')) return { ok: true, albums: [], total: 0, page: 1, totalPages: 1 }
@@ -197,5 +215,136 @@ describe('client half', () => {
     for (const c of effects) { try { c() } catch {} }
     barRoot.unmount()
     panelRoot.unmount()
+  })
+
+  it('快进/快退：常规跳转、暂停态可用、起点/终点边界钳制', async () => {
+    const effects = []
+    const ctx = {
+      get: (name) => (name === 'slots' ? fakeSlots : undefined),
+      effect: (fn) => { const cleanup = fn(); if (typeof cleanup === 'function') effects.push(cleanup) },
+    }
+    clientMod.apply(ctx)
+    const dock = slotsRegistered.find((x) => x.slotName === 'conversation.input.dock')
+    const overlay = slotsRegistered.find((x) => x.slotName === 'shell.overlay')
+
+    const barHost = document.createElement('div')
+    const panelHost = document.createElement('div')
+    document.body.appendChild(barHost)
+    document.body.appendChild(panelHost)
+    const barRoot = createRoot(barHost)
+    const panelRoot = createRoot(panelHost)
+    barRoot.render(dock.entry.render())
+    panelRoot.render(overlay.entry.render())
+
+    const flush = (ms = 60) => new Promise((r) => setTimeout(r, ms))
+    const click = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    const btnByTitlePrefix = (prefix) => [...barHost.querySelectorAll('button')]
+      .find((b) => (b.getAttribute('title') || '').startsWith(prefix))
+    const timeText = () => (barHost.querySelector('.xmly-bar-time').textContent || '').trim()
+    const fillPct = () => Number(parseFloat(barHost.querySelector('.xmly-progress-fill').style.width))
+
+    await flush()
+    // 起一首曲子（收藏的声音），等桩里的元数据（300 秒时长）就绪。
+    click(btnByTitlePrefix('搜索/列表'))
+    await flush()
+    if (panelHost.querySelector('.xmly-panel') === null) {
+      // 上个用例可能留下「面板已打开」状态（按钮是切换语义）：再点一次打开。
+      click(btnByTitlePrefix('搜索/列表'))
+      await flush()
+    }
+    expect(panelHost.querySelector('.xmly-panel')).not.toBeNull()
+    click([...panelHost.querySelectorAll('button')].find((b) => (b.textContent || '').includes('我的')))
+    await flush(150)
+    click(panelHost.querySelector('.xmly-like-row'))
+    await flush(150)
+    expect(barHost.textContent).toContain('收藏的测试声音')
+    expect(timeText()).toBe('0:00 / 5:00')
+
+    const ff = btnByTitlePrefix('快进')
+    const rew = btnByTitlePrefix('快退')
+    expect(ff).toBeTruthy()
+    expect(rew).toBeTruthy()
+    expect(ff.getAttribute('title')).toContain('15 秒') // 默认步长 15 秒
+
+    // 常规快进：0 → 15s，时间显示与进度条同步更新。
+    click(ff); await flush(20)
+    expect(timeText()).toBe('0:15 / 5:00')
+    expect(fillPct()).toBe(5)
+
+    // 暂停状态下同样可跳转：15 → 30s。
+    click(btnByTitlePrefix('暂停')); await flush(20)
+    click(ff); await flush(20)
+    expect(timeText()).toBe('0:30 / 5:00')
+
+    // 终点边界：连点到头，钳制在总时长 300s，不越界。
+    for (let i = 0; i < 25; i++) { click(ff); await flush(10) }
+    expect(timeText()).toBe('5:00 / 5:00')
+    expect(fillPct()).toBe(100)
+    click(ff); await flush(20)
+    expect(timeText()).toBe('5:00 / 5:00')
+
+    // 起点边界：往回连点，钳制在 0，不越界。
+    for (let i = 0; i < 30; i++) { click(rew); await flush(10) }
+    expect(timeText()).toBe('0:00 / 5:00')
+    expect(fillPct()).toBe(0)
+    click(rew); await flush(20)
+    expect(timeText()).toBe('0:00 / 5:00')
+
+    for (const c of effects) { try { c() } catch {} }
+    barRoot.unmount()
+    panelRoot.unmount()
+  })
+
+  it('快进/快退步长可配置：右键弹层选择 30 秒并持久化，manifest 下发 60 秒生效', async () => {
+    const effects = []
+    const ctx = {
+      get: (name) => (name === 'slots' ? fakeSlots : undefined),
+      effect: (fn) => { const cleanup = fn(); if (typeof cleanup === 'function') effects.push(cleanup) },
+    }
+    clientMod.apply(ctx)
+    const dock = slotsRegistered.find((x) => x.slotName === 'conversation.input.dock')
+
+    const barHost = document.createElement('div')
+    document.body.appendChild(barHost)
+    const barRoot = createRoot(barHost)
+    barRoot.render(dock.entry.render())
+
+    const flush = (ms = 60) => new Promise((r) => setTimeout(r, ms))
+    const click = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    const ctxMenu = (el) => el.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    const btnByTitlePrefix = (prefix) => [...barHost.querySelectorAll('button')]
+      .find((b) => (b.getAttribute('title') || '').startsWith(prefix))
+    const timeText = () => (barHost.querySelector('.xmly-bar-time').textContent || '').trim()
+
+    await flush()
+    // 右键 ⏩ 打开步长弹层，默认选中 15 秒。
+    ctxMenu(btnByTitlePrefix('快进'))
+    await flush()
+    const pop = barHost.querySelector('.xmly-step-pop')
+    expect(pop).not.toBeNull()
+    expect(pop.querySelector('.xmly-chip.active').textContent).toBe('15 秒')
+
+    // 选择 30 秒：立即生效，并通过 /prefs 持久化到宿主。
+    click([...pop.querySelectorAll('button')].find((b) => b.textContent === '30 秒'))
+    await flush()
+    expect(btnByTitlePrefix('快进').getAttribute('title')).toContain('30 秒')
+    expect(btnByTitlePrefix('快退').getAttribute('title')).toContain('30 秒')
+    const posted = global.fetch.mock.calls
+      .filter(([u]) => String(u).includes('/prefs'))
+      .some(([, opts]) => opts && opts.body && opts.body.includes('"seekStep":30'))
+    expect(posted).toBe(true)
+
+    // 新步长生效：0 → 30s。
+    click(btnByTitlePrefix('快进')); await flush(20)
+    expect(timeText()).toBe('0:30 / 5:00')
+
+    // manifest 下发 seekStep=60：重新 apply 加载后生效。
+    manifestData.prefs = { seekStep: 60 }
+    clientMod.apply(ctx)
+    await flush(150)
+    expect(btnByTitlePrefix('快退').getAttribute('title')).toContain('60 秒')
+
+    for (const c of effects) { try { c() } catch {} }
+    barRoot.unmount()
   })
 })
