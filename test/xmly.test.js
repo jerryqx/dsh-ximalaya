@@ -11,6 +11,7 @@ import {
   joinCookieMap,
   userFollowing,
   likeTracks,
+  mySubscriptions,
   anchorProfile,
   XmlyError,
 } from '../lib/xmly.js'
@@ -107,6 +108,10 @@ describe('用户中心 API（参数校验，不触网）', () => {
   it('likeTracks 无 cookie 时直接 NEED_LOGIN（不触网）', async () => {
     await expect(likeTracks(1, 30, '')).rejects.toMatchObject({ code: 'NEED_LOGIN', status: 401 })
     await expect(likeTracks()).rejects.toMatchObject({ code: 'NEED_LOGIN' })
+  })
+  it('mySubscriptions 无 cookie 时直接 NEED_LOGIN（不触网）', async () => {
+    await expect(mySubscriptions(1, 30, '')).rejects.toMatchObject({ code: 'NEED_LOGIN', status: 401 })
+    await expect(mySubscriptions()).rejects.toMatchObject({ code: 'NEED_LOGIN' })
   })
   it('anchorProfile 拒绝无效 uid', async () => {
     await expect(anchorProfile(-1)).rejects.toMatchObject({ code: 'BAD_REQUEST', status: 400 })

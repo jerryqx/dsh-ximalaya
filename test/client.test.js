@@ -47,6 +47,10 @@ global.fetch = vi.fn(async (url) => ({
       ok: true, total: 1, pageNum: 1, hasMore: false,
       tracks: [{ id: 9001, title: '收藏的测试声音', cover: '', duration: 258, durationText: '04:18', albumId: 123, albumTitle: '测试专辑', anchorName: '主播', anchorId: 1, playCount: 3, createdAtText: '3天前', isVideo: false, isPaid: false }],
     }
+    if (u.includes('/subscriptions')) return {
+      ok: true, total: 1, page: 1, hasMore: false,
+      albums: [{ id: 323366, title: '订阅的测试专辑', intro: '', cover: '', trackCount: 2300, playCount: 100, isPaid: false, isFinished: false, anchorName: '詩展', anchorUid: 1, category: '历史', score: '9.6', lastTrackTitle: '订阅专辑最新一集', lastUpdateText: '1天前' }],
+    }
     if (u.includes('/following')) return {
       ok: true, total: 1, page: 1, pageSize: 20,
       anchors: [{ uid: 170217760, nickname: '三体宇宙', cover: '', description: '', ptitle: '', albumCount: 11, trackCount: 488, fansCount: 4725762, followingCount: 22, isFollow: true, url: '/zhubo/170217760' }],
@@ -160,22 +164,29 @@ describe('client half', () => {
     click(findBtnContains(panelHost, '我的'))
     await flush(150)
     const panelText = panelHost.textContent
-    // 三个分段都在
-    expect(panelText).toContain('收藏的声音')
-    expect(panelText).toContain('关注的主播')
-    expect(panelText).toContain('收藏的专辑')
+    // 四个分段都在
+    expect(panelText).toContain('声音')
+    expect(panelText).toContain('订阅')
+    expect(panelText).toContain('主播')
+    expect(panelText).toContain('专辑')
     // 默认分段（likes）懒加载出收藏的声音
     expect(panelText).toContain('收藏的测试声音')
     expect(panelText).toContain('测试专辑')
 
-    // 切到「关注的主播」分段
-    click(findBtnContains(panelHost, '关注的主播'))
+    // 切到「订阅」分段：订阅专辑卡片 + 最新更新提示
+    click(findBtnContains(panelHost, '订阅'))
+    await flush(150)
+    expect(panelHost.textContent).toContain('订阅的测试专辑')
+    expect(panelHost.textContent).toContain('最新：1天前 · 订阅专辑最新一集')
+
+    // 切到「主播」分段
+    click(findBtnContains(panelHost, '主播'))
     await flush(150)
     expect(panelHost.textContent).toContain('三体宇宙')
     expect(panelHost.textContent).toContain('粉丝')
 
-    // 切回「收藏的声音」并点击一条 → 播放条出现该曲目
-    click(findBtnContains(panelHost, '收藏的声音'))
+    // 切回「声音」分段并点击一条 → 播放条出现该曲目
+    click(findBtnContains(panelHost, '声音'))
     await flush(100)
     const likeRow = panelHost.querySelector('.xmly-like-row')
     expect(likeRow).not.toBeNull()

@@ -52,6 +52,12 @@ vi.mock('../lib/xmly.js', async (importOriginal) => {
       ],
       total: 2, pageNum, hasMore: true,
     })),
+    mySubscriptions: vi.fn(async (page = 1, pageSize = 30) => ({
+      albums: [
+        { id: 323366, title: '订阅的测试专辑', intro: '', cover: 'https://imagev2.xmcdn.com/storages/x.jpeg', trackCount: 2300, playCount: 175044737, isPaid: false, isFinished: false, anchorName: '詩展', anchorUid: 6042491, category: '历史', score: '9.6', lastTrackTitle: '最新一集', lastUpdateText: '1天前' },
+      ],
+      total: 1, page, hasMore: false,
+    })),
     anchorProfile: vi.fn(async (uid) => ({
       albums: [
         { id: 111, title: '主播专辑一', cover: '', intro: '', trackCount: 10, playCount: 100, isPaid: false, isFinished: true, anchorName: '三体宇宙' },
@@ -179,7 +185,7 @@ describe('host routes', () => {
     expect(ck.body.status).toBe('waiting')
   })
 
-  it('following / likes 未登录返回 401 + needLogin', async () => {
+  it('following / likes / subscriptions 未登录返回 401 + needLogin', async () => {
     const f = await get('/dsh-ximalaya/following')
     expect(f.status).toBe(401)
     expect(f.body.ok).toBe(false)
@@ -187,6 +193,9 @@ describe('host routes', () => {
     const l = await get('/dsh-ximalaya/likes')
     expect(l.status).toBe(401)
     expect(l.body.needLogin).toBe(true)
+    const sub = await get('/dsh-ximalaya/subscriptions')
+    expect(sub.status).toBe(401)
+    expect(sub.body.needLogin).toBe(true)
   })
 
   it('扫码登录后 following / likes / anchor 可用', async () => {
@@ -218,6 +227,15 @@ describe('host routes', () => {
     expect(l.body.tracks.length).toBe(2)
     expect(l.body.tracks[0].title).toBe('收藏的第一集')
     expect(l.body.hasMore).toBe(true)
+
+    // 订阅的专辑。
+    const sub = await get('/dsh-ximalaya/subscriptions?page=1&pageSize=30')
+    expect(sub.status).toBe(200)
+    expect(sub.body.ok).toBe(true)
+    expect(sub.body.albums.length).toBe(1)
+    expect(sub.body.albums[0].title).toBe('订阅的测试专辑')
+    expect(sub.body.albums[0].lastTrackTitle).toBe('最新一集')
+    expect(sub.body.hasMore).toBe(false)
 
     // 主页专辑（匿名可用，显式 uid）。
     const a = await get('/dsh-ximalaya/anchor?uid=170217760')
