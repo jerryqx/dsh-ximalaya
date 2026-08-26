@@ -46,7 +46,7 @@ dsh plugin --profile <profile> add /path/to/dsh-ximalaya
 
 # 或先打包再安装
 npm pack
-dsh plugin --profile <profile> add ./dsh-ximalaya-0.3.0.tgz
+dsh plugin --profile <profile> add ./dsh-ximalaya-0.3.1.tgz
 ```
 
 安装后重启 `dsh web` 并刷新页面：
