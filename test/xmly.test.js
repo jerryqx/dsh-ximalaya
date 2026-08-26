@@ -13,6 +13,7 @@ import {
   likeTracks,
   mySubscriptions,
   anchorProfile,
+  albumTracks,
   setSubscriptionAlbum,
   setLikeTrack,
   setFollow,
@@ -119,6 +120,10 @@ describe('用户中心 API（参数校验，不触网）', () => {
   it('anchorProfile 拒绝无效 uid', async () => {
     await expect(anchorProfile(-1)).rejects.toMatchObject({ code: 'BAD_REQUEST', status: 400 })
     await expect(anchorProfile('x')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+  it('albumTracks 拒绝无效 albumId（不触网）', async () => {
+    await expect(albumTracks(0)).rejects.toMatchObject({ code: 'BAD_REQUEST', status: 400 })
+    await expect(albumTracks('abc')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
 })
 

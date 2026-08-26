@@ -48,8 +48,11 @@ global.Audio = class {
   setAttribute() {}
   removeAttribute() {}
 }
-// manifest 响应数据（可变，便于测试步长配置下发）。
+// manifest / album / tracks / search 响应数据（可变，便于用例覆盖）。
 const manifestData = { prefs: {} }
+const albumData = { album: { id: 123, title: '测试专辑', trackCount: 0 } }
+const tracksData = { tracks: [], maxPageId: 1, totalCount: 0, pageId: 1 }
+const searchData = { albums: [] }
 // fetch stub：全部返回 ok 的响应，避免测试触网。
 global.fetch = vi.fn(async (url) => ({
   ok: true,
@@ -61,7 +64,7 @@ global.fetch = vi.fn(async (url) => ({
       favs: [], history: [], prefs: manifestData.prefs, playback: null,
     }
     if (u.includes('/intent')) return { ok: true, intent: null }
-    if (u.includes('/search')) return { ok: true, albums: [], total: 0, page: 1, totalPages: 1 }
+    if (u.includes('/search')) return { ok: true, albums: searchData.albums, total: searchData.albums.length, page: 1, totalPages: 1 }
     if (u.includes('/play')) return { ok: true, quality: '标准 64kbps M4A', streamUrl: '/dsh-ximalaya/stream?trackId=1' }
     if (u.includes('/likes')) return {
       ok: true, total: 1, pageNum: 1, hasMore: false,
@@ -79,8 +82,8 @@ global.fetch = vi.fn(async (url) => ({
       ok: true, uid: 170217760, total: 1,
       albums: [{ id: 111, title: '主播的专辑', cover: '', intro: '', trackCount: 10, playCount: 100, isPaid: false, isFinished: true, anchorName: '三体宇宙' }],
     }
-    if (u.includes('/album')) return { ok: true, album: { id: 123, title: '测试专辑' } }
-    if (u.includes('/tracks')) return { ok: true, tracks: [], maxPageId: 1, totalCount: 0, pageId: 1 }
+    if (u.includes('/album')) return { ok: true, album: albumData.album }
+    if (u.includes('/tracks')) return { ok: true, ...tracksData }
     if (u.includes('/write')) return { ok: true, op: 'sub', id: 0, on: true, msg: '操作成功' }
     return { ok: true }
   },
@@ -570,5 +573,74 @@ describe('client half', () => {
     panelRoot.unmount()
     // 还原 manifest prefs，避免影响其他用例
     manifestData.prefs = {}
+  })
+
+  it('show 级联接口（totalCount=0）时专辑总数回退用专辑详情的 trackCount', async () => {
+    // 模拟级联形态：/tracks 有数据但 totalCount 0（show 接口不给总数），
+    // /album 带 trackCount 2300。
+    // 用独立 factory 实例（全新 store，不受前序用例列表操作影响）：
+    // 面板→我的→订阅分段→点订阅专辑卡→openAlbum→专辑页断言。
+    albumData.album = { id: 32777350, title: "What's Next｜科技早知道", trackCount: 2300, anchorName: '主播', cover: '', category: '科技', isPaid: false, isFinished: false, intro: '' }
+    tracksData.tracks = [{ id: 251265935, title: 'S4E01 | 从线上问诊数量来看疫情', duration: 2888, isPaid: false, isFree: true, isAuthorized: true }]
+    tracksData.totalCount = 0
+    tracksData.maxPageId = 2 // hasMore=true → 还有下一页
+    try {
+      const effects = []
+      const ctx = {
+        get: (name) => (name === 'slots' ? fakeSlots : undefined),
+        effect: (fn) => { const cleanup = fn(); if (typeof cleanup === 'function') effects.push(cleanup) },
+      }
+      const freshMod = loaded.factory((id) => {
+        if (id === 'react') return React
+        throw new Error('unexpected require: ' + id)
+      })
+      freshMod.apply(ctx)
+      const entries = slotsRegistered.filter((x) => x.slotName === 'conversation.input.dock')
+      const dock = entries[entries.length - 1]
+      const overlays = slotsRegistered.filter((x) => x.slotName === 'shell.overlay')
+      const overlay = overlays[overlays.length - 1]
+      const barHost = document.createElement('div')
+      const panelHost = document.createElement('div')
+      document.body.appendChild(barHost)
+      document.body.appendChild(panelHost)
+      const barRoot = createRoot(barHost)
+      const panelRoot = createRoot(panelHost)
+      barRoot.render(dock.entry.render())
+      panelRoot.render(overlay.entry.render())
+
+      const flush = (ms = 80) => new Promise((r) => setTimeout(r, ms))
+      const click = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }))
+
+      await flush(150)
+      // 打开面板 → 我的 → 订阅分段（fresh store 会重新拉订阅列表）
+      const panelBtn = [...barHost.querySelectorAll('button')].find((b) => b.getAttribute('title') === '搜索/列表')
+      click(panelBtn)
+      await flush()
+      if (panelHost.querySelector('.xmly-panel') === null) { click(panelBtn); await flush() }
+      click([...panelHost.querySelectorAll('button')].find((b) => (b.textContent || '') === '我的'))
+      await flush(150)
+      click([...panelHost.querySelectorAll('button')].find((b) => (b.textContent || '').includes('订阅')))
+      await flush(200)
+      const subCard = panelHost.querySelector('.xmly-album-card')
+      expect(subCard).not.toBeNull()
+      click(subCard) // openAlbum
+      await flush(250)
+
+      // 专辑页：曲目行渲染 + 总数回退显示 2300 集 + 有"加载更多"
+      expect(panelHost.textContent).toContain("What's Next｜科技早知道")
+      expect(panelHost.textContent).toContain('S4E01')
+      expect(panelHost.textContent).toContain('2300 集')
+      const moreBtn = [...panelHost.querySelectorAll('button')].find((b) => (b.textContent || '').includes('加载更多'))
+      expect(moreBtn).not.toBeNull()
+
+      for (const c of effects) { try { c() } catch {} }
+      barRoot.unmount()
+      panelRoot.unmount()
+    } finally {
+      albumData.album = { id: 123, title: '测试专辑', trackCount: 0 }
+      tracksData.tracks = []
+      tracksData.totalCount = 0
+      tracksData.maxPageId = 1
+    }
   })
 })
