@@ -79,6 +79,7 @@ global.fetch = vi.fn(async (url) => ({
     }
     if (u.includes('/album')) return { ok: true, album: { id: 123, title: '测试专辑' } }
     if (u.includes('/tracks')) return { ok: true, tracks: [], maxPageId: 1, totalCount: 0, pageId: 1 }
+    if (u.includes('/write')) return { ok: true, op: 'sub', id: 0, on: true, msg: '操作成功' }
     return { ok: true }
   },
 }))
@@ -346,5 +347,100 @@ describe('client half', () => {
 
     for (const c of effects) { try { c() } catch {} }
     barRoot.unmount()
+  })
+
+  it('云端同步操作：取消收藏声音 / 退订专辑 / 专辑页订阅', async () => {
+    const effects = []
+    const ctx = {
+      get: (name) => (name === 'slots' ? fakeSlots : undefined),
+      effect: (fn) => { const cleanup = fn(); if (typeof cleanup === 'function') effects.push(cleanup) },
+    }
+    clientMod.apply(ctx)
+    const dock = slotsRegistered.find((x) => x.slotName === 'conversation.input.dock')
+    const overlay = slotsRegistered.find((x) => x.slotName === 'shell.overlay')
+
+    const barHost = document.createElement('div')
+    const panelHost = document.createElement('div')
+    document.body.appendChild(barHost)
+    document.body.appendChild(panelHost)
+    const barRoot = createRoot(barHost)
+    const panelRoot = createRoot(panelHost)
+    barRoot.render(dock.entry.render())
+    panelRoot.render(overlay.entry.render())
+
+    const flush = (ms = 80) => new Promise((r) => setTimeout(r, ms))
+    const click = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    const findBtnByTitle = (rootEl, title) => [...rootEl.querySelectorAll('button')].find((b) => b.getAttribute('title') === title)
+    const writeCalls = () => global.fetch.mock.calls
+      .filter(([u]) => String(u).includes('/write'))
+      .map(([, opts]) => JSON.parse(opts.body))
+
+    await flush()
+    // 打开面板 → 我的
+    click(findBtnByTitle(barHost, '搜索/列表'))
+    await flush()
+    if (panelHost.querySelector('.xmly-panel') === null) { click(findBtnByTitle(barHost, '搜索/列表')); await flush() }
+    click([...panelHost.querySelectorAll('button')].find((b) => (b.textContent || '').includes('我的')))
+    await flush(150)
+
+    // 1) 收藏声音行 → ✕ 取消收藏：POST /write {op:'like', on:false}，行消失
+    const likeRow = panelHost.querySelector('.xmly-like-row')
+    expect(likeRow).not.toBeNull()
+    const unlikeBtn = likeRow.querySelector('button[title^="取消收藏"]')
+    expect(unlikeBtn).not.toBeNull()
+    click(unlikeBtn)
+    await flush(150)
+    const unlikeCall = writeCalls().find((c) => c.op === 'like')
+    expect(unlikeCall).toMatchObject({ op: 'like', id: 9001, on: false })
+    expect(panelHost.querySelector('.xmly-like-row')).toBeNull()
+
+    // 2) 订阅分段 → 点卡片进专辑页 → 「📻 订阅」→ POST {op:'sub', on:true}，变「已订阅」
+    click([...panelHost.querySelectorAll('button')].find((b) => (b.textContent || '').includes('订阅')))
+    await flush(150)
+    const subCard = panelHost.querySelector('.xmly-album-card')
+    expect(subCard).not.toBeNull()
+    click(subCard) // 打开专辑
+    await flush(200)
+    const subBtn = [...panelHost.querySelectorAll('.xmly-album-ops button')].find((b) => (b.textContent || '').includes('订阅'))
+    expect(subBtn).not.toBeNull()
+    expect(subBtn.textContent).not.toContain('已订阅')
+    click(subBtn)
+    await flush(150)
+    const subCall = writeCalls().find((c) => c.op === 'sub' && c.on === true)
+    expect(subCall).toMatchObject({ op: 'sub', id: 123, on: true })
+    const subBtnAfter = [...panelHost.querySelectorAll('.xmly-album-ops button')].find((b) => (b.textContent || '').includes('订阅'))
+    expect(subBtnAfter.textContent).toContain('已订阅')
+
+    // 3) 回订阅分段 → 退订：POST {op:'sub', on:false}，原卡片消失
+    click([...panelHost.querySelectorAll('button')].find((b) => (b.textContent || '') === '我的'))
+    await flush(100)
+    click([...panelHost.querySelectorAll('button')].find((b) => (b.textContent || '').includes('订阅')))
+    await flush(150)
+    const targetCard = [...panelHost.querySelectorAll('.xmly-album-card')].find((c) => (c.textContent || '').includes('订阅的测试专辑'))
+    expect(targetCard).not.toBeNull()
+    const unsubBtn = targetCard.querySelector('button[title^="退订"]')
+    expect(unsubBtn).not.toBeNull()
+    click(unsubBtn)
+    await flush(150)
+    const unsubCall = writeCalls().find((c) => c.op === 'sub' && c.on === false)
+    expect(unsubCall).toMatchObject({ op: 'sub', id: 323366, on: false })
+    expect([...panelHost.querySelectorAll('.xmly-album-card')].some((c) => (c.textContent || '').includes('订阅的测试专辑'))).toBe(false)
+
+    // 4) 主播分段 → 取关：POST /write {op:'follow', on:false}，卡片消失
+    click([...panelHost.querySelectorAll('button')].find((b) => (b.textContent || '').includes('主播')))
+    await flush(150)
+    const anchorCard = panelHost.querySelector('.xmly-anchor-card')
+    expect(anchorCard).not.toBeNull()
+    const unfollowBtn = anchorCard.querySelector('button[title^="取消关注"]')
+    expect(unfollowBtn).not.toBeNull()
+    click(unfollowBtn)
+    await flush(150)
+    const unfollowCall = writeCalls().find((c) => c.op === 'follow')
+    expect(unfollowCall).toMatchObject({ op: 'follow', id: 170217760, on: false })
+    expect(panelHost.querySelector('.xmly-anchor-card')).toBeNull()
+
+    for (const c of effects) { try { c() } catch {} }
+    barRoot.unmount()
+    panelRoot.unmount()
   })
 })

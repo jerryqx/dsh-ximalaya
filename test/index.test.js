@@ -65,6 +65,9 @@ vi.mock('../lib/xmly.js', async (importOriginal) => {
       ],
       total: 2, uid,
     })),
+    setSubscriptionAlbum: vi.fn(async (albumId, on) => ({ msg: on ? '订阅专辑成功' : '取消订阅专辑成功' })),
+    setLikeTrack: vi.fn(async (trackId, on) => ({ msg: on ? '点赞成功' : '取消点赞成功' })),
+    setFollow: vi.fn(async (uid, on) => ({ msg: on ? 'isFollow' : '成功取消关注' })),
   }
 })
 
@@ -196,7 +199,7 @@ describe('host routes', () => {
     expect(ck.body.status).toBe('waiting')
   })
 
-  it('following / likes / subscriptions 未登录返回 401 + needLogin', async () => {
+  it('following / likes / subscriptions / write 未登录返回 401 + needLogin', async () => {
     const f = await get('/dsh-ximalaya/following')
     expect(f.status).toBe(401)
     expect(f.body.ok).toBe(false)
@@ -207,6 +210,10 @@ describe('host routes', () => {
     const sub = await get('/dsh-ximalaya/subscriptions')
     expect(sub.status).toBe(401)
     expect(sub.body.needLogin).toBe(true)
+    const w = await post('/dsh-ximalaya/write', { op: 'sub', id: 123, on: true })
+    expect(w.status).toBe(401)
+    expect(w.body.ok).toBe(false)
+    expect(w.body.needLogin).toBe(true)
   })
 
   it('扫码登录后 following / likes / anchor 可用', async () => {
@@ -254,12 +261,35 @@ describe('host routes', () => {
     expect(a.body.ok).toBe(true)
     expect(a.body.albums.length).toBe(2)
     expect(a.body.albums[1].isPaid).toBe(true)
+
+    // 云端写操作（登录后可用）。
+    const subOn = await post('/dsh-ximalaya/write', { op: 'sub', id: 323366, on: true })
+    expect(subOn.status).toBe(200)
+    expect(subOn.body.ok).toBe(true)
+    expect(subOn.body.on).toBe(true)
+    expect(subOn.body.msg).toContain('订阅')
+    const subOff = await post('/dsh-ximalaya/write', { op: 'sub', id: 323366, on: false })
+    expect(subOff.body.on).toBe(false)
+    const likeOff = await post('/dsh-ximalaya/write', { op: 'like', id: 1001, on: false })
+    expect(likeOff.body.ok).toBe(true)
+    const followOff = await post('/dsh-ximalaya/write', { op: 'follow', id: 170217760, on: false })
+    expect(followOff.body.ok).toBe(true)
+    // on 缺省为 true。
+    const likeOn = await post('/dsh-ximalaya/write', { op: 'like', id: 1001 })
+    expect(likeOn.body.on).toBe(true)
   })
 
   it('anchor 无效 uid 400', async () => {
     const { status, body } = await get('/dsh-ximalaya/anchor?uid=abc')
     expect(status).toBe(400)
     expect(body.ok).toBe(false)
+  })
+
+  it('write 参数校验：未知 op / 无效 id → 400', async () => {
+    const badOp = await post('/dsh-ximalaya/write', { op: 'evil', id: 123 })
+    expect(badOp.status).toBe(400)
+    const badId = await post('/dsh-ximalaya/write', { op: 'sub', id: 'abc' })
+    expect(badId.status).toBe(400)
   })
 })
 

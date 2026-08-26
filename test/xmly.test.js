@@ -13,6 +13,9 @@ import {
   likeTracks,
   mySubscriptions,
   anchorProfile,
+  setSubscriptionAlbum,
+  setLikeTrack,
+  setFollow,
   XmlyError,
 } from '../lib/xmly.js'
 
@@ -116,5 +119,21 @@ describe('用户中心 API（参数校验，不触网）', () => {
   it('anchorProfile 拒绝无效 uid', async () => {
     await expect(anchorProfile(-1)).rejects.toMatchObject({ code: 'BAD_REQUEST', status: 400 })
     await expect(anchorProfile('x')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+})
+
+describe('云端写 API（参数校验，不触网）', () => {
+  it('setSubscriptionAlbum 无 cookie → NEED_LOGIN，无效 id → BAD_REQUEST', async () => {
+    await expect(setSubscriptionAlbum(123, true, '')).rejects.toMatchObject({ code: 'NEED_LOGIN', status: 401 })
+    await expect(setSubscriptionAlbum(0, true, 'a=b')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(setSubscriptionAlbum('x', false, 'a=b')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+  it('setLikeTrack 无 cookie → NEED_LOGIN，无效 id → BAD_REQUEST', async () => {
+    await expect(setLikeTrack(1001, false)).rejects.toMatchObject({ code: 'NEED_LOGIN', status: 401 })
+    await expect(setLikeTrack(-5, true, 'a=b')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+  it('setFollow 无 cookie → NEED_LOGIN，无效 uid → BAD_REQUEST', async () => {
+    await expect(setFollow(170217760, false, '')).rejects.toMatchObject({ code: 'NEED_LOGIN', status: 401 })
+    await expect(setFollow('abc', true, 'a=b')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
 })
