@@ -15,6 +15,7 @@ Object.defineProperty(global, 'HTMLElement', { value: dom.window.HTMLElement, co
 // Audio 桩：记录监听器；play() 异步加载出 300 秒时长并派发媒体事件
 // （loadedmetadata/durationchange/play/playing），pause() 派发 pause，
 // 供快进/快退、时间显示与进度条断言使用。
+global.__xmlyAudioInstances = []
 global.Audio = class {
   constructor() {
     this.volume = 1
@@ -25,6 +26,7 @@ global.Audio = class {
     this.readyState = 0
     this.listeners = {}
     this.style = {}
+    global.__xmlyAudioInstances.push(this)
   }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn) }
   removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn) }
@@ -442,5 +444,131 @@ describe('client half', () => {
     for (const c of effects) { try { c() } catch {} }
     barRoot.unmount()
     panelRoot.unmount()
+  })
+
+  it('缓冲中（⋯）暂停后按钮不再卡在三个点', async () => {
+    const effects = []
+    const ctx = {
+      get: (name) => (name === 'slots' ? fakeSlots : undefined),
+      effect: (fn) => { const cleanup = fn(); if (typeof cleanup === 'function') effects.push(cleanup) },
+    }
+    clientMod.apply(ctx)
+    const dock = slotsRegistered.find((x) => x.slotName === 'conversation.input.dock')
+    const barHost = document.createElement('div')
+    document.body.appendChild(barHost)
+    const barRoot = createRoot(barHost)
+    barRoot.render(dock.entry.render())
+
+    const flush = (ms = 60) => new Promise((r) => setTimeout(r, ms))
+    const click = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    const playText = () => (barHost.querySelector('.xmly-bar-play').textContent || '').trim()
+
+    await flush()
+    // 上个用例留下 current（未在播）→ 点播放键起播
+    const playBtn = barHost.querySelector('.xmly-bar-play')
+    expect(playBtn).not.toBeNull()
+    click(playBtn)
+    await flush(100)
+    expect(playText()).toBe('⏸')
+
+    const audio = global.__xmlyAudioInstances[0]
+    // 模拟网络卡顿：waiting 事件 → 按钮变 ⋯
+    audio._fire('waiting')
+    await flush(30)
+    expect(playText()).toBe('⋯')
+    // 暂停：pause 事件必须清掉 buffering，否则按钮永远停在 ⋯
+    audio.pause()
+    await flush(30)
+    expect(playText()).toBe('▶')
+    // 再次播放恢复 ⏸
+    click(barHost.querySelector('.xmly-bar-play'))
+    await flush(80)
+    expect(playText()).toBe('⏸')
+
+    for (const c of effects) { try { c() } catch {} }
+    barRoot.unmount()
+  })
+
+  it('面板头部播放/暂停按钮：面板打开时可直接暂停（不依赖底部播放条）', async () => {
+    const effects = []
+    const ctx = {
+      get: (name) => (name === 'slots' ? fakeSlots : undefined),
+      effect: (fn) => { const cleanup = fn(); if (typeof cleanup === 'function') effects.push(cleanup) },
+    }
+    clientMod.apply(ctx)
+    const dock = slotsRegistered.find((x) => x.slotName === 'conversation.input.dock')
+    const overlay = slotsRegistered.find((x) => x.slotName === 'shell.overlay')
+    const barHost = document.createElement('div')
+    const panelHost = document.createElement('div')
+    document.body.appendChild(barHost)
+    document.body.appendChild(panelHost)
+    const barRoot = createRoot(barHost)
+    const panelRoot = createRoot(panelHost)
+    barRoot.render(dock.entry.render())
+    panelRoot.render(overlay.entry.render())
+
+    const flush = (ms = 60) => new Promise((r) => setTimeout(r, ms))
+    const click = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    const headerBtn = () => panelHost.querySelector('.xmly-panel-head .xmly-panel-pp')
+
+    await flush()
+    // 面板可能已开（状态延续）；没开则点开
+    if (panelHost.querySelector('.xmly-panel') === null) {
+      click([...barHost.querySelectorAll('button')].find((b) => b.getAttribute('title') === '搜索/列表'))
+      await flush()
+    }
+    expect(panelHost.querySelector('.xmly-panel')).not.toBeNull()
+
+    const audio = global.__xmlyAudioInstances[0]
+    // 状态无关断言：点一次翻转，再点翻回（上个用例清理可能已暂停）。
+    expect(headerBtn()).not.toBeNull()
+    const t0 = (headerBtn().textContent || '').trim()
+    const pausedAfterFirst = t0 === '⏸' // 起始在播 → 点后暂停
+    click(headerBtn())
+    await flush(80)
+    expect(audio.paused).toBe(pausedAfterFirst)
+    expect((headerBtn().textContent || '').trim()).toBe(pausedAfterFirst ? '▶' : '⏸')
+    click(headerBtn())
+    await flush(80)
+    expect(audio.paused).toBe(!pausedAfterFirst)
+    expect((headerBtn().textContent || '').trim()).toBe(t0)
+
+    for (const c of effects) { try { c() } catch {} }
+    barRoot.unmount()
+    panelRoot.unmount()
+  })
+
+  it('面板位置钳制：不会压到底部输入区（播放条所在处）', async () => {
+    // manifest 下发一个明显越界的位置 + panelOpen
+    manifestData.prefs = { panelPos: { x: 9999, y: 9999 }, panelOpen: true }
+    const effects = []
+    const ctx = {
+      get: (name) => (name === 'slots' ? fakeSlots : undefined),
+      effect: (fn) => { const cleanup = fn(); if (typeof cleanup === 'function') effects.push(cleanup) },
+    }
+    clientMod.apply(ctx)
+    const overlay = slotsRegistered.find((x) => x.slotName === 'shell.overlay')
+    const panelHost = document.createElement('div')
+    document.body.appendChild(panelHost)
+    const panelRoot = createRoot(panelHost)
+    panelRoot.render(overlay.entry.render())
+
+    const flush = (ms = 80) => new Promise((r) => setTimeout(r, ms))
+    await flush(200)
+    const panel = panelHost.querySelector('.xmly-panel')
+    expect(panel).not.toBeNull()
+    const vw = dom.window.innerWidth, vh = dom.window.innerHeight
+    const left = parseInt(panel.style.left, 10)
+    const top = parseInt(panel.style.top, 10)
+    const maxH = parseInt(panel.style.maxHeight, 10)
+    expect(left).toBeLessThanOrEqual(vw - 120)
+    expect(top).toBeLessThanOrEqual(Math.max(72, vh - 180 - 320))
+    // 底边不进入输入区预留带
+    expect(top + maxH).toBeLessThanOrEqual(vh - 180 + 1)
+
+    for (const c of effects) { try { c() } catch {} }
+    panelRoot.unmount()
+    // 还原 manifest prefs，避免影响其他用例
+    manifestData.prefs = {}
   })
 })

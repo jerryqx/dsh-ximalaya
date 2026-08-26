@@ -1,6 +1,6 @@
 {
   "name": "dsh-ximalaya",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "DeepSeek Harness 喜马拉雅播客插件：Host 端代理喜马拉雅搜索/专辑/曲目/收藏声音/订阅专辑/关注主播接口并解析播放地址（免费曲直链 + 登录态 baseInfo 解锁已购/VIP 内容），支持订阅/收藏/关注云端写回（与手机 App 同步），浏览器侧提供播放条与搜索/专辑/主播/我的面板，并注册 ximalaya_play 模型工具",
   "type": "module",
   "main": "lib/index.js",
