@@ -492,7 +492,7 @@ describe('client half', () => {
     barRoot.unmount()
   })
 
-  it('面板头部播放/暂停按钮：面板打开时可直接暂停（不依赖底部播放条）', async () => {
+  it('面板头部不放播放/暂停按钮：面板打开时底部播放条仍可正常暂停', async () => {
     const effects = []
     const ctx = {
       get: (name) => (name === 'slots' ? fakeSlots : undefined),
@@ -512,7 +512,6 @@ describe('client half', () => {
 
     const flush = (ms = 60) => new Promise((r) => setTimeout(r, ms))
     const click = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }))
-    const headerBtn = () => panelHost.querySelector('.xmly-panel-head .xmly-panel-pp')
 
     await flush()
     // 面板可能已开（状态延续）；没开则点开
@@ -522,19 +521,22 @@ describe('client half', () => {
     }
     expect(panelHost.querySelector('.xmly-panel')).not.toBeNull()
 
+    // 面板头部不再放播放/暂停按钮（位置钳制后底部播放条始终可点，无需重复控制）。
+    expect(panelHost.querySelector('.xmly-panel-head .xmly-panel-pp')).toBeNull()
+
     const audio = global.__xmlyAudioInstances[0]
-    // 状态无关断言：点一次翻转，再点翻回（上个用例清理可能已暂停）。
-    expect(headerBtn()).not.toBeNull()
-    const t0 = (headerBtn().textContent || '').trim()
+    const playBtn = () => barHost.querySelector('.xmly-bar-play')
+    // 面板打开时底部播放条仍可正常翻转播放/暂停（状态无关断言）。
+    const t0 = (playBtn().textContent || '').trim()
     const pausedAfterFirst = t0 === '⏸' // 起始在播 → 点后暂停
-    click(headerBtn())
+    click(playBtn())
     await flush(80)
     expect(audio.paused).toBe(pausedAfterFirst)
-    expect((headerBtn().textContent || '').trim()).toBe(pausedAfterFirst ? '▶' : '⏸')
-    click(headerBtn())
+    expect((playBtn().textContent || '').trim()).toBe(pausedAfterFirst ? '▶' : '⏸')
+    click(playBtn())
     await flush(80)
     expect(audio.paused).toBe(!pausedAfterFirst)
-    expect((headerBtn().textContent || '').trim()).toBe(t0)
+    expect((playBtn().textContent || '').trim()).toBe(t0)
 
     for (const c of effects) { try { c() } catch {} }
     barRoot.unmount()
